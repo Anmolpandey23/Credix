@@ -1,0 +1,40 @@
+# Python cache and build artifacts
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# IDE/editor
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
+
+# Local runtime artifacts
+storage/tmp*.json
+storage/*.log
+
+# Optional local input/output documents (uncomment if you do not want these tracked)
+# storage/*.pdf
+# *.pdf
+
+# Private documents and local secrets
+.env
+.env.*
+!.env.example
+*.pdf
+
+# Local runtime data
+storage/*.log
+storage/tmp*.json
