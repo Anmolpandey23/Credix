@@ -12,6 +12,76 @@ from utils.text_utils import clean_extracted_text, normalize_whitespace
 
 
 class ExtractionService:
+    def extract_documents(
+        self, file_paths: Iterable[Path]
+    ) -> List[dict[str, str | int | None]]:
+        """Extract document segments while retaining available source locations.
+
+        PDF segments retain their 1-based page number when text is available.
+        CSV and JSON segments retain their filename; page is not applicable.
+        If PDF page extraction fails, fall back to the existing extraction
+        path and explicitly leave the page unknown.
+        """
+        documents: List[dict[str, str | int | None]] = []
+
+        for file_path in file_paths:
+            suffix = file_path.suffix.lower()
+
+            if suffix == ".pdf":
+                try:
+                    from pypdf import PdfReader  # type: ignore
+
+                    logging.getLogger("pypdf").setLevel(logging.ERROR)
+                    reader = PdfReader(str(file_path))
+                    pages = [
+                        (page_number, clean_extracted_text(page.extract_text() or ""))
+                        for page_number, page in enumerate(reader.pages, start=1)
+                    ]
+
+                    usable_pages = [
+                        (page_number, text)
+                        for page_number, text in pages
+                        if normalize_whitespace(text)
+                    ]
+
+                    if usable_pages:
+                        documents.extend(
+                            {
+                                "source": file_path.name,
+                                "page": page_number,
+                                "text": text,
+                            }
+                            for page_number, text in usable_pages
+                        )
+                        continue
+                except Exception:
+                    pass
+
+                # Existing extraction may use OCR. Do not guess its page
+                # mapping if the fallback returns combined document text.
+                fallback_text = self.extract(file_path)
+                if normalize_whitespace(fallback_text):
+                    documents.append(
+                        {
+                            "source": file_path.name,
+                            "page": None,
+                            "text": fallback_text,
+                        }
+                    )
+                continue
+
+            text = self.extract(file_path)
+            if normalize_whitespace(text):
+                documents.append(
+                    {
+                        "source": file_path.name,
+                        "page": None,
+                        "text": text,
+                    }
+                )
+
+        return documents
+
     def extract_many(self, file_paths: Iterable[Path]) -> str:
         documents: List[str] = []
         for file_path in file_paths:

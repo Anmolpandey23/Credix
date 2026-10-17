@@ -14,6 +14,7 @@ from extraction.service import ExtractionService
 from ingestion.service import IngestionService
 from insights import FinancialInsightGenerator
 from rag.vectorless import VectorlessRAGExtractor
+from utils.text_utils import normalize_whitespace
 
 
 class ConfidenceAnalyzer:
@@ -324,8 +325,80 @@ class AIBrainPipeline:
                     }
                     for field, meta in metadata.items()
                     if meta is not None
-                }
+                },
+                "source_evidence": self._build_source_evidence(
+                    ingested_files,
+                    self.vectorless_rag.last_evidence,
+                ),
             }
+
+        return result
+
+    def _build_source_evidence(
+        self,
+        file_paths: List[str | Path],
+        evidence_by_field: Dict[str, str],
+    ) -> Dict[str, Dict[str, Any]]:
+        """Map supporting text to a unique source segment without guessing."""
+        result: Dict[str, Dict[str, Any]] = {}
+
+        try:
+            documents = self.extraction.extract_documents(
+                [Path(file_path) for file_path in file_paths]
+            )
+        except Exception:
+            documents = []
+
+        normalized_documents = []
+        for document in documents:
+            text = normalize_whitespace(
+                str(document.get("text") or "")
+            ).casefold()
+            normalized_documents.append((document, text))
+
+        for field in FINANCIAL_FIELDS:
+            evidence = evidence_by_field.get(field, "")
+            entry: Dict[str, Any] = {
+                "evidence_text": evidence or None,
+                "source": None,
+                "page": None,
+                "status": "no_evidence",
+            }
+
+            if not evidence:
+                result[field] = entry
+                continue
+
+            normalized_evidence = normalize_whitespace(evidence).casefold()
+
+            # Numeric-only or very short snippets are not reliable provenance.
+            if len(normalized_evidence) < 12 or not re.search(
+                r"[a-z]", normalized_evidence
+            ):
+                entry["status"] = "insufficient_context"
+                result[field] = entry
+                continue
+
+            matches = [
+                document
+                for document, document_text in normalized_documents
+                if normalized_evidence in document_text
+            ]
+
+            if len(matches) == 1:
+                entry["source"] = matches[0].get("source")
+                entry["page"] = matches[0].get("page")
+                entry["status"] = (
+                    "matched"
+                    if entry["source"] and entry["page"] is not None
+                    else "matched_page_unknown"
+                )
+            elif len(matches) > 1:
+                entry["status"] = "ambiguous"
+            else:
+                entry["status"] = "not_found"
+
+            result[field] = entry
 
         return result
 

@@ -57,6 +57,7 @@ class Candidate:
     min_value: Optional[float] = None
     max_value: Optional[float] = None
     value_type: str = "exact"  # exact | approximate | range
+    evidence_text: str = ""
 
 
 def _normalize_alias(alias: str) -> str:
@@ -85,11 +86,14 @@ class VectorlessRAGExtractor:
         """
         output: Financials = {field: None for field in FINANCIAL_FIELDS}
         metadata: Dict = {field: None for field in FINANCIAL_FIELDS}
+        self.last_evidence: Dict[str, str] = {}
 
         for field, aliases in FIELD_PATTERNS.items():
             candidate = self._extract_field_value(raw_text, field, aliases)
             if candidate:
                 output[field] = candidate.value
+                if candidate.evidence_text:
+                    self.last_evidence[field] = candidate.evidence_text
                 metadata[field] = FinancialValue(
                     value=candidate.value,
                     confidence=candidate.confidence,
@@ -221,6 +225,7 @@ class VectorlessRAGExtractor:
                         min_value=best_match.get('min'),
                         max_value=best_match.get('max'),
                         value_type=value_type,
+                        evidence_text=matched_text,
                     )
 
         return None
@@ -333,6 +338,7 @@ class VectorlessRAGExtractor:
                         is_approximate=False,
                         has_range=False,
                         value_type="exact",
+                        evidence_text=line,
                     )
                 )
                 continue
@@ -408,6 +414,7 @@ class VectorlessRAGExtractor:
                         min_value=approx_info.get('min'),
                         max_value=approx_info.get('max'),
                         value_type=value_type,
+                        evidence_text=line,
                     )
                 )
 
