@@ -1,4 +1,4 @@
-"""Deterministic document extraction without numeric transformation."""
+"""Document extraction with page-level provenance and local OCR."""
 
 from __future__ import annotations
 
@@ -10,18 +10,14 @@ from typing import Iterable, List
 
 from utils.text_utils import clean_extracted_text, normalize_whitespace
 
+logger = logging.getLogger(__name__)
+
 
 class ExtractionService:
     def extract_documents(
         self, file_paths: Iterable[Path]
     ) -> List[dict[str, str | int | None]]:
-        """Extract document segments while retaining available source locations.
-
-        PDF segments retain their 1-based page number when text is available.
-        CSV and JSON segments retain their filename; page is not applicable.
-        If PDF page extraction fails, fall back to the existing extraction
-        path and explicitly leave the page unknown.
-        """
+        """Extract document segments and preserve source locations where known."""
         documents: List[dict[str, str | int | None]] = []
 
         for file_path in file_paths:
@@ -33,32 +29,35 @@ class ExtractionService:
 
                     logging.getLogger("pypdf").setLevel(logging.ERROR)
                     reader = PdfReader(str(file_path))
-                    pages = [
-                        (page_number, clean_extracted_text(page.extract_text() or ""))
-                        for page_number, page in enumerate(reader.pages, start=1)
-                    ]
 
-                    usable_pages = [
-                        (page_number, text)
-                        for page_number, text in pages
-                        if normalize_whitespace(text)
-                    ]
+                    for page_number, page in enumerate(reader.pages, start=1):
+                        text = clean_extracted_text(page.extract_text() or "")
 
-                    if usable_pages:
-                        documents.extend(
-                            {
-                                "source": file_path.name,
-                                "page": page_number,
-                                "text": text,
-                            }
-                            for page_number, text in usable_pages
-                        )
-                        continue
-                except Exception:
-                    pass
+                        # OCR only pages where selectable text is unavailable.
+                        if not normalize_whitespace(text):
+                            text = self._ocr_pdf_page(file_path, page_number)
 
-                # Existing extraction may use OCR. Do not guess its page
-                # mapping if the fallback returns combined document text.
+                        if normalize_whitespace(text):
+                            documents.append(
+                                {
+                                    "source": file_path.name,
+                                    "page": page_number,
+                                    "text": text,
+                                }
+                            )
+
+                    # Page extraction succeeded. Do not merge the document
+                    # into one segment or guess page numbers.
+                    continue
+
+                except Exception as exc:
+                    logger.warning(
+                        "Page-level PDF extraction failed for %s: %s",
+                        file_path.name,
+                        exc,
+                    )
+
+                # Last-resort combined extraction. Page is explicitly unknown.
                 fallback_text = self.extract(file_path)
                 if normalize_whitespace(fallback_text):
                     documents.append(
@@ -83,10 +82,10 @@ class ExtractionService:
         return documents
 
     def extract_many(self, file_paths: Iterable[Path]) -> str:
-        documents: List[str] = []
-        for file_path in file_paths:
-            documents.append(self.extract(file_path))
-        return clean_extracted_text("\n".join(part for part in documents if part.strip()))
+        parts = [self.extract(path) for path in file_paths]
+        return clean_extracted_text(
+            "\n".join(part for part in parts if part.strip())
+        )
 
     def extract(self, file_path: Path) -> str:
         suffix = file_path.suffix.lower()
@@ -100,54 +99,114 @@ class ExtractionService:
 
         return ""
 
+    def _ocr_pdf_page(self, file_path: Path, page_number: int) -> str:
+        """OCR one 1-based PDF page using PyMuPDF and local Tesseract."""
+        try:
+            import pymupdf  # type: ignore
+
+            with pymupdf.open(str(file_path)) as document:
+                page_index = page_number - 1
+
+                if page_index < 0 or page_index >= len(document):
+                    logger.warning(
+                        "Invalid OCR page %s for %s",
+                        page_number,
+                        file_path.name,
+                    )
+                    return ""
+
+                page = document[page_index]
+                text_page = page.get_textpage_ocr(
+                    language="eng",
+                    dpi=300,
+                    full=True,
+                )
+                text = page.get_text("text", textpage=text_page)
+
+            return clean_extracted_text(text)
+
+        except Exception as exc:
+            logger.warning(
+                "OCR unavailable or failed for %s page %s: %s",
+                file_path.name,
+                page_number,
+                exc,
+            )
+            return ""
+
     def _extract_pdf(self, file_path: Path) -> str:
-        text = ""
+        """Extract all PDF pages, OCRing pages without selectable text."""
         try:
             from pypdf import PdfReader  # type: ignore
 
-            # Silence noisy non-fatal parser warnings (e.g., wrong pointing object).
             logging.getLogger("pypdf").setLevel(logging.ERROR)
             reader = PdfReader(str(file_path))
-            text = "\n".join(page.extract_text() or "" for page in reader.pages)
-        except Exception:
-            text = ""
+            page_texts: List[str] = []
 
-        extracted = clean_extracted_text(text)
-        if normalize_whitespace(extracted):
-            # If primary extraction appears incomplete on key anchors, attempt OCR and merge.
-            anchors = ("revenue", "profit", "debt", "receivables", "cash flow", "gst", "bank")
-            lower_text = extracted.lower()
-            anchor_hits = sum(1 for anchor in anchors if anchor in lower_text)
-            if anchor_hits >= 4:
-                return extracted
+            for page_number, page in enumerate(reader.pages, start=1):
+                text = clean_extracted_text(page.extract_text() or "")
 
-        # OCR fallback is attempted when text extraction is empty or anchor coverage is weak.
+                if not normalize_whitespace(text):
+                    text = self._ocr_pdf_page(file_path, page_number)
+
+                if normalize_whitespace(text):
+                    page_texts.append(text)
+
+            return clean_extracted_text("\n".join(page_texts))
+
+        except Exception as exc:
+            logger.warning(
+                "pypdf extraction failed for %s; trying PyMuPDF: %s",
+                file_path.name,
+                exc,
+            )
+
+        # Fallback when pypdf cannot parse the document.
         try:
-            import pytesseract  # type: ignore
-            from pdf2image import convert_from_path  # type: ignore
+            import pymupdf  # type: ignore
 
-            images = convert_from_path(str(file_path))
-            ocr_text = "\n".join(pytesseract.image_to_string(image) for image in images)
-            ocr_clean = clean_extracted_text(ocr_text)
+            page_texts = []
+            with pymupdf.open(str(file_path)) as document:
+                for page_number, page in enumerate(document, start=1):
+                    text = clean_extracted_text(page.get_text("text") or "")
 
-            if normalize_whitespace(extracted) and normalize_whitespace(ocr_clean):
-                return clean_extracted_text(extracted + "\n" + ocr_clean)
-            if normalize_whitespace(ocr_clean):
-                return ocr_clean
-            return extracted
-        except Exception:
-            return extracted
+                    if not normalize_whitespace(text):
+                        text_page = page.get_textpage_ocr(
+                            language="eng",
+                            dpi=300,
+                            full=True,
+                        )
+                        text = clean_extracted_text(
+                            page.get_text("text", textpage=text_page)
+                        )
+
+                    if normalize_whitespace(text):
+                        page_texts.append(text)
+
+            return clean_extracted_text("\n".join(page_texts))
+
+        except Exception as exc:
+            logger.warning(
+                "PyMuPDF extraction/OCR failed for %s: %s",
+                file_path.name,
+                exc,
+            )
+            return ""
 
     def _extract_csv(self, file_path: Path) -> str:
         lines: List[str] = []
+
         with file_path.open("r", encoding="utf-8", newline="") as handle:
             reader = csv.DictReader(handle)
             headers = reader.fieldnames or []
+
             if headers:
                 lines.append("headers: " + ", ".join(headers))
+
             for row in reader:
                 row_parts = [f"{key}: {value}" for key, value in row.items()]
                 lines.append("; ".join(row_parts))
+
         return clean_extracted_text("\n".join(lines))
 
     def _extract_json(self, file_path: Path) -> str:

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, replace
-from typing import Dict, Literal, Optional
+from typing import Dict, Iterable, Literal, Mapping, Optional
 
 from config.settings import FINANCIAL_FIELDS
 from models.schemas import Financials, FinancialValue
@@ -17,7 +17,7 @@ from utils.text_utils import (
 FIELD_PATTERNS: Dict[str, list[str]] = {
     "revenue": ["total revenue", "revenue", "sales", "turnover"],
     "net_profit": ["net profit", "net profit after tax", "profit after tax", "pat"],
-    "total_debt": ["total debt", "debt", "borrowings", "total liabilities"],
+    "total_debt": ["total debt", "debt", "borrowings"],
     "bank_deposits": ["bank deposits", "bank inflows", "cash inflow", "bank credits", "deposits in bank", "bank balance", "bank collections"],
     "gst_revenue": ["gst declared revenue", "gst revenue", "gst turnover", "gst filings", "gstr revenue", "gst sales"],
     "receivables": ["trade receivables", "accounts receivable", "receivables", "debtors"],
@@ -105,6 +105,80 @@ class VectorlessRAGExtractor:
 
         return output, metadata
 
+    def extract_document_candidates(
+        self,
+        documents: Iterable[Mapping[str, object]],
+    ) -> list[dict[str, object]]:
+        """
+        Extract financial candidates independently from document segments.
+
+        Each segment must contain:
+            - source: nonblank source identifier, such as a filename
+            - text: extracted text for that document or page
+
+        Optional:
+            - page: positive, one-based page number, or None
+
+        This method deliberately does not infer currency, reporting period,
+        unit, or accounting basis. Identical values from separate segments
+        remain separate observations with their own provenance.
+        """
+        records: list[dict[str, object]] = []
+
+        for index, document in enumerate(documents):
+            if not isinstance(document, Mapping):
+                raise ValueError(
+                    f"Document {index}: expected a mapping"
+                )
+
+            source = document.get("source")
+            text = document.get("text")
+            page = document.get("page")
+
+            if not isinstance(source, str) or not source.strip():
+                raise ValueError(
+                    f"Document {index}: source must not be blank"
+                )
+
+            if not isinstance(text, str):
+                raise ValueError(
+                    f"Document {index}: text must be a string"
+                )
+
+            if page is not None and (
+                isinstance(page, bool)
+                or not isinstance(page, int)
+                or page < 1
+            ):
+                raise ValueError(
+                    f"Document {index}: page must be a positive integer or None"
+                )
+
+            if not text.strip():
+                continue
+
+            for field, aliases in FIELD_PATTERNS.items():
+                candidate = self._extract_field_value(text, field, aliases)
+
+                if candidate is None:
+                    continue
+
+                records.append({
+                    "field": field,
+                    "value": candidate.value,
+                    "source": source.strip(),
+                    "page": page,
+                    "evidence_text": candidate.evidence_text,
+                    "confidence": candidate.confidence,
+                    "is_approximate": candidate.is_approximate,
+                    "has_range": candidate.has_range,
+                    "min_value": candidate.min_value,
+                    "max_value": candidate.max_value,
+                    "value_type": candidate.value_type,
+                })
+
+        return records
+
     def _extract_field_value(self, text: str, field: str, aliases: list[str]) -> Optional[Candidate]:
         normalized_text = normalize_whitespace(_searchable_text(text))
         normalized_lines = []
@@ -189,6 +263,7 @@ class VectorlessRAGExtractor:
             for pattern in fallback_patterns:
                 best_match = None
                 best_score = -1
+                best_matched_text = ""
 
                 for match in re.finditer(pattern, normalized_text, flags=re.IGNORECASE):
                     matched_text = match.group(1)
@@ -208,6 +283,7 @@ class VectorlessRAGExtractor:
                     if match_score > best_score:
                         best_score = match_score
                         best_match = approx_info
+                        best_matched_text = match.group(0)
 
                 if best_match:
                     value_type = "range" if best_match["has_range"] else ("approximate" if best_match["is_approximate"] else "exact")
@@ -225,7 +301,7 @@ class VectorlessRAGExtractor:
                         min_value=best_match.get('min'),
                         max_value=best_match.get('max'),
                         value_type=value_type,
-                        evidence_text=matched_text,
+                        evidence_text=best_matched_text,
                     )
 
         return None

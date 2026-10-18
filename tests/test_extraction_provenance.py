@@ -1,4 +1,5 @@
 from pathlib import Path
+from typing import Any, cast
 
 import pypdf
 
@@ -31,10 +32,10 @@ def test_pdf_extraction_preserves_page_numbers(tmp_path, monkeypatch):
     assert len(documents) == 2
     assert documents[0]["source"] == "company.pdf"
     assert documents[0]["page"] == 1
-    assert "Revenue: 100" in documents[0]["text"]
+    assert "Revenue: 100" in str(documents[0]["text"])
     assert documents[1]["source"] == "company.pdf"
     assert documents[1]["page"] == 3
-    assert "Net profit: 20" in documents[1]["text"]
+    assert "Net profit: 20" in str(documents[1]["text"])
 
 
 def test_csv_and_json_keep_filename_and_unknown_page(tmp_path):
@@ -96,7 +97,7 @@ def _build_pipeline_with_mock_documents(tmp_path, documents):
         def extract_documents(self, _file_paths):
             return documents
 
-    pipeline.extraction = FakeExtraction()
+    pipeline.extraction = cast(Any, FakeExtraction())
     return pipeline
 
 
@@ -169,3 +170,74 @@ def test_source_evidence_rejects_numeric_only_context(tmp_path):
     assert result["revenue"]["status"] == "insufficient_context"
     assert result["revenue"]["source"] is None
     assert result["revenue"]["page"] is None
+
+
+def test_pdf_ocr_fills_scanned_pages_and_preserves_page_numbers(
+    tmp_path, monkeypatch
+):
+    pdf_path = tmp_path / "mixed.pdf"
+    pdf_path.write_bytes(b"mock pdf")
+
+    class FakePage:
+        def __init__(self, text):
+            self.text = text
+
+        def extract_text(self):
+            return self.text
+
+    class FakeReader:
+        def __init__(self, _path):
+            self.pages = [
+                FakePage("Revenue: 100 crore"),
+                FakePage(""),
+                FakePage("Net profit: 12 crore"),
+            ]
+
+    monkeypatch.setattr(pypdf, "PdfReader", FakeReader)
+
+    service = ExtractionService()
+    ocr_calls = []
+
+    def fake_ocr(path, page_number):
+        ocr_calls.append(page_number)
+        return "Total debt: 40 crore" if page_number == 2 else ""
+
+    monkeypatch.setattr(service, "_ocr_pdf_page", fake_ocr)
+
+    documents = service.extract_documents([pdf_path])
+
+    assert [doc["page"] for doc in documents] == [1, 2, 3]
+    assert "Revenue: 100 crore" in documents[0]["text"]
+    assert "Total debt: 40 crore" in documents[1]["text"]
+    assert "Net profit: 12 crore" in documents[2]["text"]
+    assert ocr_calls == [2]
+
+
+def test_pdf_page_with_existing_text_is_not_ocr_processed(
+    tmp_path, monkeypatch
+):
+    pdf_path = tmp_path / "digital.pdf"
+    pdf_path.write_bytes(b"mock pdf")
+
+    class FakePage:
+        def extract_text(self):
+            return "Revenue: 100 crore"
+
+    class FakeReader:
+        def __init__(self, _path):
+            self.pages = [FakePage()]
+
+    monkeypatch.setattr(pypdf, "PdfReader", FakeReader)
+
+    service = ExtractionService()
+
+    def unexpected_ocr(*_args):
+        raise AssertionError("OCR should not run for a text-based page")
+
+    monkeypatch.setattr(service, "_ocr_pdf_page", unexpected_ocr)
+
+    documents = service.extract_documents([pdf_path])
+
+    assert len(documents) == 1
+    assert documents[0]["page"] == 1
+    assert "Revenue: 100 crore" in documents[0]["text"]
