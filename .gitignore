@@ -38,3 +38,11 @@ storage/*.log
 # Local runtime data
 storage/*.log
 storage/tmp*.json
+
+# Local backup copies created during development
+*.bak
+*.before-*
+*.pre_*
+
+# Local inspection inputs (move sanitized fixtures into tests/fixtures)
+storage/inspection.json
