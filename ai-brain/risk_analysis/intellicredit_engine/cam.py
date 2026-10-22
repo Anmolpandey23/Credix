@@ -61,11 +61,33 @@ def generate_credit_appraisal_memo(
         and item.get("status") in {"incomparable", "insufficient_evidence"}
     ]
 
+    # Zero comparisons means consistency has not been established.
+    comparison_count = reconciliation_data.get("comparison_count")
+    if (
+        isinstance(comparison_count, bool)
+        or not isinstance(comparison_count, int)
+        or comparison_count < 0
+    ):
+        comparison_count = len(comparisons)
+
+    if comparison_count == 0:
+        unresolved_empty_text = (
+            "No same-field observation pairs were available to compare; "
+            "cross-source consistency has not been established."
+        )
+    else:
+        unresolved_empty_text = (
+            "No comparisons requiring additional evidence were reported "
+            f"among {comparison_count} comparison(s)."
+        )
+
     findings = inspection_data.get("findings")
     findings = findings if isinstance(findings, list) else []
 
     signals = research_data.get("signals")
     signals = signals if isinstance(signals, list) else []
+    sources = research_data.get("sources")
+    sources = sources if isinstance(sources, list) else []
     research_status = research_data.get(
         "status",
         "not_performed",
@@ -110,6 +132,21 @@ def generate_credit_appraisal_memo(
             f"- **{signal.get('type', 'signal')}** "
             f"({signal.get('severity', 'unknown')}): "
             f"{signal.get('evidence') or 'No supporting evidence supplied'}"
+        )
+
+    source_rows = []
+    for source in sources:
+        if not isinstance(source, Mapping):
+            continue
+
+        url = source.get("url")
+        if not isinstance(url, str) or not url.startswith(("http://", "https://")):
+            continue
+
+        title = source.get("title") or "Untitled source"
+        published_at = source.get("published_at") or "Date not supplied"
+        source_rows.append(
+            f"- **{title}** — published: {published_at}; URL: {url}"
         )
 
     reconciliation_rows = []
@@ -183,7 +220,7 @@ The two scores have different meanings and must not be compared as if they were 
 
 ### Comparisons needing more evidence
 
-{_markdown_bullets([f"{item.get('field')}: {item.get('reason', 'Comparison unresolved')}" for item in unresolved], 'No unresolved comparisons reported.')}
+{_markdown_bullets([f"{item.get('field')}: {item.get('reason', 'Comparison unresolved')}" for item in unresolved], unresolved_empty_text)}
 
 A discrepancy is a review trigger, not proof of fraud. Incomparable values should not be treated as equivalent or conflicting without adequate context.
 
@@ -197,7 +234,11 @@ A discrepancy is a review trigger, not proof of fraud. Incomparable values shoul
 
 **Research status:** {research_status}
 
-{_markdown_bullets(signal_rows, 'No source-backed external research signals supplied.')}
+{_markdown_bullets(signal_rows, 'No external research signals supplied.')}
+
+### Research sources
+
+{chr(10).join(source_rows) if source_rows else '- No source URLs supplied.'}
 
 Research claims should be independently checked against their original sources, publication dates, and company identity before a credit decision.
 

@@ -67,6 +67,7 @@ def _parse_financials(fin_data: dict) -> Financials:
         profit_cashflow_comparable=fin_data.get("profit_cashflow_comparable"),
         revenue_history_comparable=fin_data.get("revenue_history_comparable"),
         expense_comparable=fin_data.get("expense_comparable"),
+        profit_revenue_comparable=fin_data.get("profit_revenue_comparable"),
     )
 
 def _parse_operational(op_data: dict) -> OperationalData:
@@ -81,14 +82,25 @@ def _parse_signals(raw_signals: list) -> List[Signal]:
     signals = []
     for i, raw_signal in enumerate(raw_signals):
         try:
-            signals.append(Signal(
-                type=raw_signal["type"],
-                severity=raw_signal["severity"],
-                confidence=raw_signal["confidence"],
-                source="json"
-            ))
+            if not isinstance(raw_signal, dict):
+                logger.warning(
+                    "Skipping malformed signal at index %s: "
+                    "expected a JSON object",
+                    i,
+                )
+                continue
+
+            signals.append(
+                Signal(
+                    type=raw_signal["type"],
+                    severity=raw_signal["severity"],
+                    confidence=raw_signal["confidence"],
+                    source=raw_signal.get("source", "json"),
+                    evidence=raw_signal.get("evidence"),
+                )
+            )
         except (KeyError, ValidationError) as e:
-            logger.warning(f"Skipping malformed signal at index {i}: {e}")
+            logger.warning("Skipping malformed signal at index %s: %s", i, e)
     return signals
 
 def _check_data_quality(risk_input: RiskInput) -> List[str]:
@@ -106,7 +118,9 @@ def _check_data_quality(risk_input: RiskInput) -> List[str]:
     if risk_input.operational_data.workforce is not None and risk_input.operational_data.workforce < 0:
         issues.append("workforce is negative - invalid value")
 
-    if all(signal.confidence == 0.0 for signal in risk_input.external_signals):
+    if risk_input.external_signals and all(
+        signal.confidence == 0.0 for signal in risk_input.external_signals
+    ):
         issues.append("All signals have zero confidence - external data may be unreliable")
 
     return issues

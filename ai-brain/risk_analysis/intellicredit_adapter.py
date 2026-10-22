@@ -172,6 +172,7 @@ def build_risk_input(
             "revenue_history_comparable"
         ),
         "expense_comparable": source.get("expense_comparable"),
+        "profit_revenue_comparable": source.get("profit_revenue_comparable"),
     }
 
     return {

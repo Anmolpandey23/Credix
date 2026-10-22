@@ -5,10 +5,11 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT / "ai-brain"))
 
-from risk_analysis.intellicredit_engine.financial import (  # noqa: E402
+from risk_analysis.intellicredit_engine.financial import (
     compute_debt_to_revenue,
     compute_receivables_to_revenue,
     compute_financial_risk,
+    compute_profit_margin,
     weights,
 )
 from risk_analysis.intellicredit_engine.models import Financials  # noqa: E402
@@ -353,3 +354,31 @@ def test_aggregate_scores_rejects_non_finite_penalty():
     for penalty in [math.nan, math.inf, -math.inf]:
         with pytest.raises(ValueError):
             aggregate_scores(50, 50, 50, 50, penalty)
+
+
+def test_profit_margin_requires_verified_comparability():
+    financials = Financials(
+        profit=10,
+        gst_revenue=100,
+        profit_revenue_comparable=None,
+    )
+    assert compute_profit_margin(financials) is None
+
+
+def test_profit_margin_returns_ratio_when_verified():
+    financials = Financials(
+        profit=10,
+        gst_revenue=100,
+        profit_revenue_comparable=True,
+    )
+    assert compute_profit_margin(financials) == 0.1
+
+
+def test_profit_margin_rejects_invalid_revenue():
+    for revenue in (0, -100, float("nan"), float("inf")):
+        financials = Financials(
+            profit=10,
+            gst_revenue=revenue,
+            profit_revenue_comparable=True,
+        )
+        assert compute_profit_margin(financials) is None

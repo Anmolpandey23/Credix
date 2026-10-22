@@ -67,3 +67,27 @@ def test_unit_is_not_guessed_from_a_bare_number_suffix():
         "Revenue: 100 crore. FY 2025-26."
     )
     assert context["unit"] is None
+
+def test_unit_is_extracted_from_explicit_financial_amount_range():
+    context = extract_financial_context(
+        "Unaudited Report 2024. Total Turnover approx Rs. 98-102 Cr."
+    )
+    assert context["unit"] == "cr"
+    assert context["currency"] == "INR"
+    assert context["period"] is None
+    assert context["basis"] is None
+
+
+def test_unit_is_extracted_from_financial_amount_without_currency():
+    context = extract_financial_context(
+        "Net Profit (PAT): near about 9.5 to 10 Cr."
+    )
+    assert context["unit"] == "cr"
+    assert context["currency"] is None
+
+
+def test_conflicting_amount_units_remain_unknown():
+    context = extract_financial_context(
+        "Revenue 100 Cr. Expenses 50 lakh."
+    )
+    assert context["unit"] is None

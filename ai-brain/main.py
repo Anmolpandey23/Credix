@@ -238,12 +238,13 @@ class AIBrainPipeline:
         external_signals: List[Dict[str, Any]] | None = None,
         research_data: Dict[str, Any] | None = None,
         include_cam: bool = True,
+        perform_web_research: bool = False,
+        research_provider: Any | None = None,
     ) -> Dict[str, Any]:
-        """Run financial analysis and optional inspection/research/CAM inputs.
+        """Run financial analysis with optional live research and CAM.
 
-        External signals are caller-supplied evidence; this method does not
-        perform live web research. AI Brain and IntelliCredit scores remain
-        separate and the generated CAM is a draft for human review.
+        Live research is explicitly opt-in. AI Brain and IntelliCredit scores
+        remain separate, and the generated CAM is a draft for human review.
         """
         from risk_analysis.intellicredit_engine.inspection import (
             validate_inspection,
@@ -323,6 +324,66 @@ class AIBrainPipeline:
         extraction_quality = self._detect_extraction_quality(raw_text)
         resolved_company = self._resolve_company_name(company, raw_text)
 
+        research_result = None
+        supplied_external_signals = list(external_signals or [])
+
+        if perform_web_research:
+            from risk_analysis.research_agent import run_company_research
+
+            selected_provider = research_provider
+            using_anthropic = False
+
+            # An explicitly supplied provider always takes precedence.
+            if selected_provider is None:
+                try:
+                    from risk_analysis.anthropic_research_provider import (
+                        create_provider_from_env,
+                    )
+                    selected_provider = create_provider_from_env()
+                    using_anthropic = selected_provider is not None
+                except Exception:
+                    # Optional provider setup must not block offline analysis.
+                    selected_provider = None
+
+                # No configured Anthropic provider: use no-key RSS search.
+                if selected_provider is None:
+                    from risk_analysis.rss_research_provider import (
+                        GoogleNewsRSSProvider,
+                    )
+                    selected_provider = GoogleNewsRSSProvider()
+
+            research_result = run_company_research(
+                resolved_company,
+                provider=selected_provider,
+            )
+
+            # If configured Anthropic search fails, retry with RSS.
+            if (
+                research_provider is None
+                and using_anthropic
+                and research_result.get("status") == "failed"
+            ):
+                from risk_analysis.rss_research_provider import (
+                    GoogleNewsRSSProvider,
+                )
+
+                anthropic_warnings = research_result.get("warnings", [])
+                rss_result = run_company_research(
+                    resolved_company,
+                    provider=GoogleNewsRSSProvider(),
+                )
+                rss_result["warnings"] = (
+                    list(anthropic_warnings)
+                    + list(rss_result.get("warnings", []))
+                )
+                research_result = rss_result
+
+            # Only validated findings returned by the research agent are
+            # passed to IntelliCredit. Existing caller signals are retained.
+            external_signals = supplied_external_signals + list(
+                research_result.get("signals", [])
+            )
+
         confidence_metrics = self.confidence_analyzer.calculate(
             financials=financials,
             metadata=metadata,
@@ -398,6 +459,9 @@ class AIBrainPipeline:
         # Recalculate derived values to maintain internal consistency.
         result = self._validate_and_correct_result(result, raw_text)
 
+        if research_result is not None:
+            result["research"] = research_result
+
         # Build provenance once and reuse it for IntelliCredit and metadata.
         # These records describe extraction evidence; they do not establish
         # accounting comparability or automatically enable financial ratios.
@@ -447,6 +511,12 @@ class AIBrainPipeline:
                 },
             )
 
+            if research_result is not None:
+                result["intellicredit_risk"]["web_research_performed"] = (
+                    research_result.get("status")
+                    in {"success", "no_results", "no_usable_evidence"}
+                )
+
         except Exception as exc:
             result["intellicredit_risk"] = {
                 "status": "failed",
@@ -469,16 +539,18 @@ class AIBrainPipeline:
                 generate_credit_appraisal_memo,
             )
 
-            supplied_research = dict(research_data or {})
-            supplied_research["signals"] = supplied_research.get(
-                "signals", external_signals or []
-            )
-            # No live research provider is wired into this pipeline yet.
-            supplied_research["status"] = (
-                "provided_signals_not_live_researched"
-                if supplied_research["signals"]
-                else "not_performed"
-            )
+            if research_result is not None:
+                supplied_research = dict(research_result)
+            else:
+                supplied_research = dict(research_data or {})
+                supplied_research["signals"] = supplied_research.get(
+                    "signals", external_signals or []
+                )
+                supplied_research["status"] = (
+                    "provided_signals_not_live_researched"
+                    if supplied_research["signals"]
+                    else "not_performed"
+                )
 
             result["credit_appraisal_memo"] = (
                 generate_credit_appraisal_memo(
@@ -1576,6 +1648,10 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Include optional semantic evidence retrieval",
     )
+    parser.add_argument(
+        "--inspection-json",
+        help="Path to a JSON object containing primary factory inspection data",
+    )
 
     return parser
 
@@ -1586,6 +1662,17 @@ def main() -> None:
     parser = build_parser()
     args = parser.parse_args()
 
+    inspection_data = None
+    if args.inspection_json:
+        try:
+            with Path(args.inspection_json).open("r", encoding="utf-8") as file:
+                inspection_data = json.load(file)
+        except (OSError, json.JSONDecodeError) as exc:
+            parser.error(f"Could not read inspection JSON: {exc}")
+
+        if not isinstance(inspection_data, dict):
+            parser.error("--inspection-json must contain a JSON object")
+
     pipeline = AIBrainPipeline(
         storage_dir=Path(args.storage_dir)
     )
@@ -1595,6 +1682,7 @@ def main() -> None:
         file_paths=args.files,
         include_metadata=args.include_metadata,
         include_retrieval=args.include_retrieval,
+        inspection_data=inspection_data,
     )
 
     print(json.dumps(result, indent=2))

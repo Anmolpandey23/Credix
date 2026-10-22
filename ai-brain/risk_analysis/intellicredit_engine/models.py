@@ -26,6 +26,7 @@ class Financials (BaseModel):
     profit_cashflow_comparable: Optional[bool] = None
     revenue_history_comparable: Optional[bool] = None
     expense_comparable: Optional[bool] = None
+    profit_revenue_comparable: Optional[bool] = None
 
 class SeverityLevel(Enum):
     LOW = "low"

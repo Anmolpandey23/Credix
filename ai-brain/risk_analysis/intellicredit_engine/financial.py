@@ -212,12 +212,25 @@ def compute_dscr(financials) -> Optional[float]:
         return None
     return financials.net_operating_income / financials.debt_payments
 
-def compute_profit_margin(financials) -> Optional[float]:
+def compute_profit_margin(financials: Financials) -> Optional[float]:
+    if financials.profit_revenue_comparable is not True:
+        return None
+
     if financials.profit is None or financials.gst_revenue is None:
         return None
-    if financials.gst_revenue == 0:
+
+    if (
+        isinstance(financials.profit, bool)
+        or isinstance(financials.gst_revenue, bool)
+        or not isinstance(financials.profit, (int, float))
+        or not isinstance(financials.gst_revenue, (int, float))
+        or not math.isfinite(float(financials.profit))
+        or not math.isfinite(float(financials.gst_revenue))
+        or financials.gst_revenue <= 0
+    ):
         return None
-    return financials.profit / financials.gst_revenue
+
+    return float(financials.profit) / float(financials.gst_revenue)
 
 def compute_revenue_trend(financials) -> Optional[float]:
     history = financials.revenue_history
