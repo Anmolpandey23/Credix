@@ -6,6 +6,7 @@ Search results and model-generated findings are treated as untrusted.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 import json
 import os
 import re
@@ -111,8 +112,8 @@ class AnthropicWebSearchProvider:
         self.client = client
         self.model = model
 
-    def search(self, queries: list[str]) -> list[dict[str, Any]]:
-        results: list[dict[str, Any]] = []
+    def search(self, queries: list[str]) -> list[Mapping[str, Any]]:
+        results: list[Mapping[str, Any]] = []
 
         for query in queries:
             response = self.client.messages.create(

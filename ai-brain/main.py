@@ -328,9 +328,12 @@ class AIBrainPipeline:
         supplied_external_signals = list(external_signals or [])
 
         if perform_web_research:
-            from risk_analysis.research_agent import run_company_research
+            from risk_analysis.research_agent import (
+                ResearchProvider,
+                run_company_research,
+            )
 
-            selected_provider = research_provider
+            selected_provider: ResearchProvider | None = research_provider
             using_anthropic = False
 
             # An explicitly supplied provider always takes precedence.
@@ -475,30 +478,30 @@ class AIBrainPipeline:
             )
             reconciliation = self._build_reconciliation(ingested_files)
 
+        field_details = {
+            field: {
+                "confidence_bin": (
+                    meta.confidence if meta else None
+                ),
+                "is_approximate": (
+                    meta.is_approximate if meta else None
+                ),
+                "has_range": (
+                    meta.has_range if meta else None
+                ),
+                "min": meta.min_value if meta else None,
+                "max": meta.max_value if meta else None,
+            }
+            for field, meta in metadata.items()
+            if meta is not None
+        }
+
         # IntelliCredit is an independent assessment. Its score must not
         # overwrite AI Brain's score, confidence, or risk flags.
         try:
             from risk_analysis.intellicredit_adapter import (
                 analyze_offline_risk,
             )
-
-            field_details = {
-                field: {
-                    "confidence_bin": (
-                        meta.confidence if meta else None
-                    ),
-                    "is_approximate": (
-                        meta.is_approximate if meta else None
-                    ),
-                    "has_range": (
-                        meta.has_range if meta else None
-                    ),
-                    "min": meta.min_value if meta else None,
-                    "max": meta.max_value if meta else None,
-                }
-                for field, meta in metadata.items()
-                if meta is not None
-            }
 
             result["intellicredit_risk"] = analyze_offline_risk(
                 company_id=resolved_company,
