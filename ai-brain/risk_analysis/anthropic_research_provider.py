@@ -216,7 +216,7 @@ def create_provider_from_env() -> AnthropicWebSearchProvider | None:
         return None
 
     try:
-        import anthropic
+        import anthropic  # type: ignore[import-not-found, import-untyped]
     except ImportError:
         return None
 
