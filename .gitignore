@@ -35,9 +35,13 @@ storage/*.log
 !.env.example
 *.pdf
 
-# Local runtime data
+# Local runtime data & uploads
+storage/uploads/
 storage/*.log
 storage/tmp*.json
+storage/*.csv
+storage/*.json
+!tests/fixtures/**
 
 # Local backup copies created during development
 *.bak
@@ -45,5 +49,3 @@ storage/tmp*.json
 *.pre_*
 *backup*.py
 
-# Local inspection inputs (move sanitized fixtures into tests/fixtures)
-storage/inspection.json

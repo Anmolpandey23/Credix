@@ -41,6 +41,17 @@ _MAX_COMPANY_NAME_LEN = 200
 _UPLOAD_DIR = _ROOT / "storage" / "uploads"
 _UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
+# ── Streamlit width compatibility ─────────────────────────────────────────────
+try:
+    import inspect
+    _USE_WIDTH_STRETCH = "width" in inspect.signature(st.button).parameters
+except Exception:
+    _USE_WIDTH_STRETCH = False
+
+def _stretch_width_kwargs() -> dict[str, Any]:
+    return {"width": "stretch"} if _USE_WIDTH_STRETCH else {"use_container_width": True}
+
+
 # ── Custom CSS — premium dark glassmorphism theme (v3) ───────────────────────
 st.markdown(
     """
@@ -860,7 +871,7 @@ def render_financials_tab(result: Dict):
             ]
 
             if ratio_rows:
-                st.dataframe(pd.DataFrame(ratio_rows), use_container_width=True, hide_index=True)
+                st.dataframe(pd.DataFrame(ratio_rows), **_stretch_width_kwargs(), hide_index=True)
             else:
                 st.info("No computable ratios — insufficient data or comparability flags not set.")
         else:
@@ -883,7 +894,7 @@ def render_financials_tab(result: Dict):
                     "Evidence Status":  str(rec.get("evidence_status") or "—"),
                 })
             if ev_rows:
-                st.dataframe(pd.DataFrame(ev_rows), use_container_width=True, hide_index=True)
+                st.dataframe(pd.DataFrame(ev_rows), **_stretch_width_kwargs(), hide_index=True)
             else:
                 st.info("No field evidence records.")
         else:
@@ -1019,7 +1030,7 @@ def render_cross_check_tab(result: Dict):
             cols_to_show = [c for c in ["field", "source_a", "source_b", "status", "reason"] if c in comparisons[0]]
             df = pd.DataFrame(comparisons)[cols_to_show]
             df.columns = [c.replace("_", " ").title() for c in cols_to_show]
-            st.dataframe(df, use_container_width=True, hide_index=True)
+            st.dataframe(df, **_stretch_width_kwargs(), hide_index=True)
 
             if rec_status == "insufficient_evidence":
                 st.info(
@@ -1305,7 +1316,7 @@ def render_cam_tab(result: Dict):
                 data=markdown_content,
                 file_name=f"CAM_{company_slug}_{date_slug}.md",
                 mime="text/markdown",
-                use_container_width=True,
+                **_stretch_width_kwargs(),
             )
         with dl2:
             st.download_button(
@@ -1313,7 +1324,7 @@ def render_cam_tab(result: Dict):
                 data=markdown_content,
                 file_name=f"CAM_{company_slug}_{date_slug}.txt",
                 mime="text/plain",
-                use_container_width=True,
+                **_stretch_width_kwargs(),
             )
     else:
         st.warning("CAM content is empty.")
@@ -1369,7 +1380,7 @@ def main():
     # ── Run button + real-time status chips ──────────────────────────────────
     col_btn, col_hints = st.columns([1, 3])
     with col_btn:
-        run_clicked = st.button("🚀 Run IntelliCredit Analysis", use_container_width=True)
+        run_clicked = st.button("🚀 Run IntelliCredit Analysis", **_stretch_width_kwargs())
     with col_hints:
         chips = []
         if config["company_name"]:
