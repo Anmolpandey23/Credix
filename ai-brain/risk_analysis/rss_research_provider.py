@@ -25,19 +25,27 @@ USER_AGENT = "AIBrain-CompanyResearch/1.0"
 RISK_KEYWORDS = {
     "fraud": (
         "fraud", "embezzlement", "bribery", "forgery",
-        "money laundering", "financial scam",
+        "money laundering", "financial scam", "data breach",
+        "whistleblower", "accounting irregularity",
     ),
     "legal": (
         "lawsuit", "court case", "charged", "indicted",
         "prosecution", "legal proceedings", "arrested",
+        "high court", "supreme court", "injunction",
+        "restrains", "arbitral", "tribunal", "litigation",
+        "fined", "penalty", "violation", "complaint filed",
     ),
     "operational": (
         "insolvency", "bankruptcy", "default", "recall",
         "shutdown", "license revoked", "production halted",
+        "compliance gap", "labor violation", "regulator",
+        "regulatory action", "investigation",
     ),
     "market": (
         "credit downgrade", "rating downgrade", "debt restructuring",
-        "missed payment", "payment default",
+        "missed payment", "payment default", "buyback",
+        "share buyback", "dividend", "stock incentive",
+        "promoter reclassification",
     ),
 }
 
@@ -104,6 +112,16 @@ def _extract_company(queries: list[str]) -> str:
 
     match = re.match(r'\s*"([^"]+)"', queries[0])
     return match.group(1).strip() if match else ""
+
+
+def _clean_company_name(name: str) -> str:
+    cleaned = re.sub(
+        r"(?i)\b(private limited|pvt\.?\s*ltd\.?|limited|ltd\.?|incorporated|inc\.?|corporation|corp\.?|llc|plc)\b",
+        "",
+        name,
+    )
+    cleaned = re.sub(r"[,.]", "", cleaned).strip()
+    return cleaned or name
 
 
 class GoogleNewsRSSProvider:
@@ -181,10 +199,38 @@ class GoogleNewsRSSProvider:
         if not company:
             return []
 
+        clean_name = _clean_company_name(company)
+        short_name = company.split()[0] if company.split() else company
+
+        # Include queries for the clean base name (e.g. "Tata Motors" for "Tata Motors Limited")
+        # because news outlets almost always report with the trade name.
+        all_queries = list(queries)
+        if clean_name and clean_name.casefold() != company.casefold():
+            for query in queries:
+                expanded = query.replace(f'"{company}"', f'"{clean_name}"')
+                if expanded not in all_queries:
+                    all_queries.append(expanded)
+
         findings: list[Mapping[str, Any]] = []
         seen_urls: set[str] = set()
 
-        for query in queries:
+        # Build name variants that confirm the article mentions the target company
+        name_variants = {company.casefold()}
+        if clean_name:
+            name_variants.add(clean_name.casefold())
+
+        generic_prefixes = {
+            "state", "the", "national", "general", "first",
+            "central", "united", "global", "all", "new", "bharat",
+        }
+        if (
+            short_name
+            and len(short_name) >= 3
+            and short_name.casefold() not in generic_prefixes
+        ):
+            name_variants.add(short_name.casefold())
+
+        for query in all_queries:
             for article in self._fetch(query):
                 url = article["url"]
                 if url in seen_urls:
@@ -193,14 +239,13 @@ class GoogleNewsRSSProvider:
 
                 title = article["title"]
                 description = article["description"]
-                searchable = f"{title} {description}"
+                searchable = f"{title} {description}".casefold()
 
-                # Require an explicit company-name mention. This is only
-                # a basic relevance filter, not proof of legal identity.
-                if company.casefold() not in searchable.casefold():
+                # Require a company-name mention across all valid name variants
+                if not any(variant in searchable for variant in name_variants):
                     continue
 
-                classification = _classify(searchable)
+                classification = _classify(f"{title} {description}")
                 if classification is None:
                     continue
 

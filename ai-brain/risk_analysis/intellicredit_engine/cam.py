@@ -55,11 +55,20 @@ def generate_credit_appraisal_memo(
         item for item in comparisons
         if isinstance(item, Mapping) and item.get("status") == "discrepancy"
     ]
-    unresolved = [
-        item for item in comparisons
-        if isinstance(item, Mapping)
-        and item.get("status") in {"incomparable", "insufficient_evidence"}
-    ]
+    # Deduplicate unresolved entries by (field, reason) so that when the
+    # same issue is found across multiple page-pairs of the same single-source
+    # document it is reported only once per distinct finding.
+    _seen_unresolved: set[tuple[str, str]] = set()
+    unresolved = []
+    for _item in comparisons:
+        if not isinstance(_item, Mapping):
+            continue
+        if _item.get("status") not in {"incomparable", "insufficient_evidence"}:
+            continue
+        _key = (str(_item.get("field", "")), str(_item.get("reason", "")))
+        if _key not in _seen_unresolved:
+            _seen_unresolved.add(_key)
+            unresolved.append(_item)
 
     # Zero comparisons means consistency has not been established.
     comparison_count = reconciliation_data.get("comparison_count")
@@ -145,8 +154,9 @@ def generate_credit_appraisal_memo(
 
         title = source.get("title") or "Untitled source"
         published_at = source.get("published_at") or "Date not supplied"
+        # Use the title as link anchor text to keep long RSS URLs readable.
         source_rows.append(
-            f"- **{title}** — published: {published_at}; URL: {url}"
+            f"- **{title}** — published: {published_at}; [View article]({url})"
         )
 
     reconciliation_rows = []

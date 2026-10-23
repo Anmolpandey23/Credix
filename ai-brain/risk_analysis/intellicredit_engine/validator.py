@@ -122,5 +122,5 @@ def _check_data_quality(risk_input: RiskInput) -> List[str]:
         signal.confidence == 0.0 for signal in risk_input.external_signals
     ):
         issues.append("All signals have zero confidence - external data may be unreliable")
-
+        
     return issues

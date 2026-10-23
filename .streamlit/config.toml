@@ -1,0 +1,23 @@
+[server]
+# Security: restrict to localhost by default (change to 0.0.0.0 for network access)
+address = "localhost"
+port = 8501
+# Enable CORS protection and pin allowed origins to localhost only
+enableCORS = true
+corsAllowedOrigins = ["http://localhost:8501", "http://127.0.0.1:8501"]
+enableXsrfProtection = true
+# Restrict WebSocket connections to trusted hostnames
+allowedHosts = ["localhost", "127.0.0.1"]
+# 50 MB max upload (security: prevent very large file uploads)
+maxUploadSize = 50
+
+[browser]
+gatherUsageStats = false
+
+[theme]
+base = "dark"
+primaryColor = "#818cf8"
+backgroundColor = "#0a0e1a"
+secondaryBackgroundColor = "#0d1530"
+textColor = "#e2e8f0"
+font = "sans serif"

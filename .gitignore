@@ -43,6 +43,7 @@ storage/tmp*.json
 *.bak
 *.before-*
 *.pre_*
+*backup*.py
 
 # Local inspection inputs (move sanitized fixtures into tests/fixtures)
 storage/inspection.json

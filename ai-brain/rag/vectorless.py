@@ -46,6 +46,18 @@ APPROXIMATE_LINE_PATTERN = re.compile(
 
 NEGATION_PATTERN = re.compile(r"\b(?:no|nil|none|without|zero|not applicable|n/?a)\b", re.IGNORECASE)
 
+# These fields represent aggregate financial flows that are always ≥ 0.
+# A negative extracted value is almost certainly a mis-parse (e.g. a
+# change/growth figure such as "Revenue growth: -4%" being read as revenue).
+# We apply a very large negative score to such candidates so they are
+# never chosen over a positive-value candidate from the same document.
+_ALWAYS_POSITIVE_FIELDS = {
+    "revenue",
+    "bank_deposits",
+    "gst_revenue",
+    "receivables",
+}
+
 
 @dataclass(frozen=True)
 class Candidate:
@@ -465,6 +477,46 @@ class VectorlessRAGExtractor:
                     score -= 40
                 if field == "gst_revenue" and re.search(r"\bgst|gstr\b", line_lower, flags=re.IGNORECASE):
                     score += 40
+
+                # Ratio / percentage-line penalty
+                # Lines from a Ratio Analysis section express values as % of revenue
+                # (e.g. "Gross profit / revenue 31.5%"). They must NOT beat a real
+                # absolute value found on the income-statement page.
+                is_pct_line = bool(re.search(r"\d\s*%", normalized_line))
+                is_ratio_line = bool(re.search(
+                    r"/\s*(?:revenue|sales|turnover|total\s+income|pat|ebitda)",
+                    normalized_line, re.IGNORECASE,
+                ))
+                if is_pct_line or is_ratio_line:
+                    score -= 80  # strong push-down so absolute-value lines win
+
+                # Days / DSO / DPO line penalty: numbers like 63 from
+                # "Day sales outstanding (Days) 63" must not be taken as revenue.
+                is_days_line = bool(re.search(
+                    r"\b(?:days?|dso|dpo|dio|turnover\s+days?)\b",
+                    normalized_line, re.IGNORECASE,
+                ))
+                if is_days_line:
+                    score -= 80
+
+                # Small-value penalty: percentage-scale numbers (0-100) should not
+                # beat crore-scale absolute amounts for large-amount fields.
+                _LARGE_AMOUNT_FIELDS = {
+                    "revenue", "net_profit", "total_debt",
+                    "bank_deposits", "gst_revenue", "receivables",
+                    "operating_cash_flow",
+                }
+                if field in _LARGE_AMOUNT_FIELDS and 0 < parsed < 200:
+                    score -= 30
+
+                # Negative-value penalty: fields like revenue, receivables,
+                # GST revenue, and bank deposits are always ≥ 0 in normal
+                # financial reporting. A negative parse means we matched a
+                # growth/change figure (e.g. "Revenue growth -4%") instead
+                # of the actual amount. Apply a very strong penalty so a
+                # correct positive candidate always wins.
+                if field in _ALWAYS_POSITIVE_FIELDS and parsed < 0:
+                    score -= 200
 
                 if is_table_like:
                     score += 15

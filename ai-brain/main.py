@@ -1004,6 +1004,7 @@ class AIBrainPipeline:
         self,
         numerator: float | None,
         denominator: float | None,
+        digits: int = 2,
     ) -> float | None:
         if numerator is None or denominator is None:
             return None
@@ -1027,7 +1028,7 @@ class AIBrainPipeline:
         if not math.isfinite(ratio):
             return None
 
-        return round(ratio, 2)
+        return round(ratio, digits)
 
 
     def _build_ratios(
@@ -1037,6 +1038,7 @@ class AIBrainPipeline:
             "cash_flow_to_profit": self._safe_ratio(
                 financials.get("operating_cash_flow"),
                 financials.get("net_profit"),
+                digits=4,
             ),
             "debt_to_revenue": self._safe_ratio(
                 financials.get("total_debt"),
