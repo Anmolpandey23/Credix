@@ -1,13 +1,13 @@
-  # 🏦 IntelliCredit — AI Credit Appraisal Platform
+# 🏦 Credix — AI Credit Appraisal & Risk Intelligence Platform
 
-> **AI-powered, deterministic, auditable credit risk analysis for lending workflows.**
+> **AI-powered, deterministic, auditable credit risk analysis and autonomous CAM generation for modern lending workflows.**
 > Draft outputs only — not a lending decision. Always verify with original source documents.
 
 ---
 
 ## Table of Contents
 
-1. [What is IntelliCredit?](#1-what-is-intellicredit)
+1. [What is Credix?](#1-what-is-credix)
 2. [The Two Scores Explained](#2-the-two-scores-explained)
 3. [System Architecture](#3-system-architecture)
 4. [5-Module Pipeline](#4-5-module-pipeline)
@@ -24,11 +24,11 @@
 
 ---
 
-## 1. What is IntelliCredit?
+## 1. What is Credix?
 
-IntelliCredit is a **multi-module AI credit appraisal platform** that ingests company financial documents (PDFs, CSVs, JSON), extracts structured financial data, applies rule-based and AI-assisted risk analysis, and produces a **Credit Appraisal Memo (CAM)** — the kind a credit officer would present to a lending committee.
+**Credix** is a **multi-module AI credit appraisal platform** that ingests company financial documents (PDFs, CSVs, JSON), extracts structured financial data via deterministic vectorless RAG, applies rule-based risk analysis via the **IntelliCredit Engine**, aggregates live market and fraud research, and autonomously produces an auditable **Credit Appraisal Memo (CAM)** — the kind a credit officer presents to an investment committee.
 
-It does **not** use a black-box machine learning model to make a single score. Instead, it runs **five deterministic, auditable modules**, each producing its own risk sub-score and evidence trail, which are then aggregated. Every number is traceable back to the source document and the rule that produced it.
+It does **not** rely on a black-box machine learning model to make an opaque lending decision. Instead, it runs **five deterministic, auditable modules**, each producing its own risk sub-score and verifiable evidence trail. Every metric is traceable back to the source document page or verified news signal.
 
 ---
 
