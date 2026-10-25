@@ -7,7 +7,7 @@ must be explicitly supplied. Provider output is untrusted until validated.
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Any, Protocol
+from typing import Any, Protocol, TypeGuard
 from urllib.parse import urlparse
 
 
@@ -40,7 +40,7 @@ class ResearchProvider(Protocol):
         ...
 
 
-def _valid_http_url(value: Any) -> bool:
+def _valid_http_url(value: Any) -> TypeGuard[str]:
     if not isinstance(value, str):
         return False
 
@@ -76,7 +76,7 @@ def _normalize_finding(
     company_match = raw.get("company_match") is True
     source_verified = raw.get("source_verified") is True
 
-    if not _valid_http_url(source_url):
+    if not isinstance(source_url, str) or not _valid_http_url(source_url):
         return None
 
     if not isinstance(evidence, str) or not evidence.strip():
