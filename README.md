@@ -21,6 +21,7 @@
 12. [Testing](#12-testing)
 13. [Key File Map](#13-key-file-map)
 14. [Limitations & Disclaimers](#14-limitations--disclaimers)
+15. [License](#15-license)
 
 ---
 
@@ -421,4 +422,12 @@ AIBrain/
 
 ---
 
-*IntelliCredit AI · Draft outputs only · Not a lending decision · Always verify with original documents*
+## 15. License
+
+This project is licensed under the terms of the [MIT License](LICENSE).
+Copyright (c) 2026 Anmol Dinesh Pandey.
+
+---
+
+*Credix AI · Draft outputs only · Not a lending decision · Always verify with original documents*
+
